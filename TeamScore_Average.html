@@ -309,8 +309,8 @@
         "Matt C", "Kayla", "Lindsey", "Heather", "Trey", "Tonya"
     ];
 
-    // Paste your Google Web App URL cleanly inside these quotes:
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyIvvOt1Z9NqDpo6kqosPpeE21iySKci9TmJer2L_iAATb0rbU68DKrrb2I3vVWLnxEmw/exec";
+    // Your completely fresh, master deployment link is loaded right here:
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxpuCKw6yw9N8Q0VhmXXMJjy2hmnzQ1--JFLJSCkBWMl-Vp-CF3QJAaS3OdC7lL4nbKgQ/exec";
 
     let analysts = JSON.parse(localStorage.getItem('qaAnalysts')) || defaultAnalysts;
     let qaHistory = [];
@@ -388,7 +388,6 @@
 
             const cleanedLabel = cleanString(weekLabel);
             
-            // Re-routed through POST to break completely past Google's write-block rules
             await fetch(GOOGLE_SCRIPT_URL, {
                 method: 'POST',
                 mode: 'no-cors',
