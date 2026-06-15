@@ -344,7 +344,6 @@
         showSyncBanner(true);
         try {
             const rowPayload = {
-                action: "SAVE",
                 data: [{
                     Timestamp: new Date().toLocaleString(),
                     Week: weekLabel,
@@ -361,7 +360,6 @@
             });
 
             alert("Scores successfully saved to your Google Sheet vault!");
-            // Smoothly reload local array data
             setTimeout(loadFromGoogleSheets, 500);
         } catch (e) {
             alert("Network error processing connection!");
@@ -370,22 +368,17 @@
         showSyncBanner(false);
     }
 
-    // FIXED: Deletes row instantly from local memory array to stop ghost-refresh cycles
+    // FIXED: Uses GET link format to break completely through Google CORS security blocks
     async function deleteRowFromSheet(index, weekLabel) {
         showSyncBanner(true);
         try {
-            // 1. Instantly remove row from visual history lists locally
             qaHistory.splice(index, 1);
             renderTable();
             updateDashboardView();
 
-            // 2. Fire and forget deletion payload straight to Google cloud sheet
-            await fetch(GOOGLE_SCRIPT_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: "DELETE", week: weekLabel })
-            });
+            // Sends the delete query parameter in an unblockable GET request link
+            const deleteUrl = `${GOOGLE_SCRIPT_URL}?action=DELETE&week=${encodeURIComponent(weekLabel)}`;
+            await fetch(deleteUrl, { method: 'GET', mode: 'no-cors' });
             
             alert(`"${weekLabel}" has been successfully removed from the cloud database!`);
         } catch (e) {
