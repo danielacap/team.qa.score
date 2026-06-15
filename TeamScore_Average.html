@@ -309,7 +309,6 @@
         "Matt C", "Kayla", "Lindsey", "Heather", "Trey", "Tonya"
     ];
 
-    // Your Direct Google Apps Script Endpoint
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyIvvOt1Z9NqDpo6kqosPpeE21iySKci9TmJer2L_iAATb0rbU68DKrrb2I3vVWLnxEmw/exec";
 
     let analysts = JSON.parse(localStorage.getItem('qaAnalysts')) || defaultAnalysts;
@@ -320,19 +319,17 @@
         document.getElementById('syncBanner').style.display = show ? 'block' : 'none';
     }
 
-    // Load logs from Google Sheet
     async function loadFromGoogleSheets() {
         showSyncBanner(true);
         try {
             const response = await fetch(GOOGLE_SCRIPT_URL);
             if (response.ok) {
                 const sheetRows = await response.json();
-                
                 qaHistory = sheetRows.map(row => ({
                     week: row.Week,
                     average: row.Average,
                     scores: JSON.parse(row.Scores || "{}")
-                })).reverse(); // Keep newest entries on top locally
+                })).reverse();
             }
         } catch (e) {
             console.error("Failed fetching data from Google Script:", e);
@@ -343,11 +340,11 @@
         updateDashboardView();
     }
 
-    // Save logs directly to Google Sheet via secure POST
     async function commitRowToSheet(weekLabel, calculatedAvg, packagedScores) {
         showSyncBanner(true);
         try {
             const rowPayload = {
+                action: "SAVE",
                 data: [{
                     Timestamp: new Date().toLocaleString(),
                     Week: weekLabel,
@@ -356,7 +353,6 @@
                 }]
             };
 
-            // Using no-cors mode to handle direct Google redirects smoothly
             await fetch(GOOGLE_SCRIPT_URL, {
                 method: 'POST',
                 mode: 'no-cors',
@@ -364,14 +360,29 @@
                 body: JSON.stringify(rowPayload)
             });
 
-            alert("Scores successfully calculated and pushed directly to your Google Sheet vault!");
-            
-            // Instantly fetch the fresh list back from the sheet to verify sync status
+            alert("Scores successfully saved to your Google Sheet vault!");
             setTimeout(loadFromGoogleSheets, 1500);
-
         } catch (e) {
             alert("Network error processing connection!");
             console.error(e);
+        }
+        showSyncBanner(false);
+    }
+
+    // NEW REMOTE FUNCTION: Tells Google Script to find and remove a row
+    async function deleteRowFromSheet(weekLabel) {
+        showSyncBanner(true);
+        try {
+            await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: "DELETE", week: weekLabel })
+            });
+            alert(`"${weekLabel}" has been successfully removed from the cloud database!`);
+            setTimeout(loadFromGoogleSheets, 1500);
+        } catch (e) {
+            console.error("Sync deletion failed:", e);
         }
         showSyncBanner(false);
     }
@@ -436,8 +447,16 @@
         }
     }
 
-    function deleteWeek(index) {
-        alert("To maintain permanent historical audit logs, deletions must be done directly by the owner inside the master Google Sheet row tracker.");
+    // UNLOCKED: Now allows immediate cloud deletion directly from the table row
+    async function deleteWeek(index) {
+        const targetedLabel = qaHistory[index].week;
+        if (confirm(`Are you sure you want to delete "${targetedLabel}" from the database log for everyone?`)) {
+            saveStateForUndo();
+            qaHistory.splice(index, 1);
+            renderTable();
+            updateDashboardView();
+            await deleteRowFromSheet(targetedLabel);
+        }
     }
 
     function editWeekLabel(index) {
@@ -591,7 +610,6 @@
 
         const average = (total / count).toFixed(2);
 
-        // Put locally at the front to show up immediately
         qaHistory.unshift({
             week: week,
             average: average,
@@ -604,13 +622,11 @@
         inputElements.forEach(input => input.value = '');
         weekHtml.value = '';
 
-        // Trigger safe remote pipe execution
         await commitRowToSheet(week, average, currentScores);
     }
 
     window.addEventListener('resize', updateDashboardView);
 
-    // Bootstrap data syncing on page view
     loadFromGoogleSheets();
 </script>
 
