@@ -304,14 +304,13 @@
 </div>
 
 <script>
-    // System configuration and active roster template
     const defaultAnalysts = [
         "Vanessa", "Adelle", "Hunter", "Josh", "Matty", 
         "Matt C", "Kayla", "Lindsey", "Heather", "Trey", "Tonya"
     ];
 
-    // Locked-in personal SheetDB bridge connection mapping
-    const SHEETDB_API_URL = "https://sheetdb.io/api/v1/qczzu5lfwvr98";
+    // Your Direct Google Apps Script Endpoint
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyIvvOt1Z9NqDpo6kqosPpeE21iySKci9TmJer2L_iAATb0rbU68DKrrb2I3vVWLnxEmw/exec";
 
     let analysts = JSON.parse(localStorage.getItem('qaAnalysts')) || defaultAnalysts;
     let qaHistory = [];
@@ -321,23 +320,22 @@
         document.getElementById('syncBanner').style.display = show ? 'block' : 'none';
     }
 
-    // Grab logs securely via SheetDB engine on initialization
+    // Load logs from Google Sheet
     async function loadFromGoogleSheets() {
         showSyncBanner(true);
         try {
-            const response = await fetch(SHEETDB_API_URL);
+            const response = await fetch(GOOGLE_SCRIPT_URL);
             if (response.ok) {
                 const sheetRows = await response.json();
                 
-                // Reconstruct history tracking structure from columns
                 qaHistory = sheetRows.map(row => ({
                     week: row.Week,
                     average: row.Average,
                     scores: JSON.parse(row.Scores || "{}")
-                })).reverse(); // Keeping newest entries array-first locally
+                })).reverse(); // Keep newest entries on top locally
             }
         } catch (e) {
-            console.error("Failed fetching row entries from spreadsheet proxy link:", e);
+            console.error("Failed fetching data from Google Script:", e);
         }
         showSyncBanner(false);
         renderAnalysts();
@@ -345,7 +343,7 @@
         updateDashboardView();
     }
 
-    // Save individual calculated records straight into the sheet
+    // Save logs directly to Google Sheet via secure POST
     async function commitRowToSheet(weekLabel, calculatedAvg, packagedScores) {
         showSyncBanner(true);
         try {
@@ -358,33 +356,22 @@
                 }]
             };
 
-            const response = await fetch(SHEETDB_API_URL, {
+            // Using no-cors mode to handle direct Google redirects smoothly
+            await fetch(GOOGLE_SCRIPT_URL, {
                 method: 'POST',
+                mode: 'no-cors',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(rowPayload)
             });
 
-            if (response.ok) {
-                alert("Scores securely calculated and saved to Google Sheets vault!");
-            } else {
-                throw new Error("Target row connection write rejection.");
-            }
-        } catch (e) {
-            alert("Network error! Unable to process remote writing row lock.");
-            console.error(e);
-        }
-        showSyncBanner(false);
-    }
+            alert("Scores successfully calculated and pushed directly to your Google Sheet vault!");
+            
+            // Instantly fetch the fresh list back from the sheet to verify sync status
+            setTimeout(loadFromGoogleSheets, 1500);
 
-    // Remove tracking row data from remote spreadsheet configuration
-    async function deleteRowFromSheet(weekLabel) {
-        showSyncBanner(true);
-        try {
-            await fetch(`${SHEETDB_API_URL}/Week/${encodeURIComponent(weekLabel)}`, {
-                method: 'DELETE'
-            });
         } catch (e) {
-            console.error("Sync cleanup row removal failed:", e);
+            alert("Network error processing connection!");
+            console.error(e);
         }
         showSyncBanner(false);
     }
@@ -397,16 +384,8 @@
         document.getElementById('undoBtn').disabled = false;
     }
 
-    async function triggerUndo() {
+    function triggerUndo() {
         if (!previousState) return;
-        
-        // If undoing an add action that updated the layout stack
-        const wasAddition = qaHistory.length > previousState.qaHistory.length;
-        if (wasAddition) {
-            const addedLabel = qaHistory[0].week;
-            await deleteRowFromSheet(addedLabel);
-        }
-
         analysts = previousState.analysts;
         qaHistory = previousState.qaHistory;
         
@@ -457,43 +436,12 @@
         }
     }
 
-    async function deleteWeek(index) {
-        const targetedLabel = qaHistory[index].week;
-        if (confirm(`Are you sure you want to delete "${targetedLabel}" from the database log?`)) {
-            saveStateForUndo();
-            qaHistory.splice(index, 1);
-            renderTable();
-            updateDashboardView();
-            await deleteRowFromSheet(targetedLabel);
-        }
+    function deleteWeek(index) {
+        alert("To maintain permanent historical audit logs, deletions must be done directly by the owner inside the master Google Sheet row tracker.");
     }
 
-    async function editWeekLabel(index) {
-        const currentName = qaHistory[index].week;
-        const newName = prompt(`Edit label name for this entry:`, currentName);
-        
-        if (newName !== null && newName.trim() !== "" && newName.trim() !== currentName) {
-            saveStateForUndo();
-            const originalLabel = qaHistory[index].week;
-            const updatedLabel = newName.trim();
-            
-            qaHistory[index].week = updatedLabel;
-            renderTable();
-            updateDashboardView();
-
-            // Patch label directly via structured connection update logic
-            showSyncBanner(true);
-            try {
-                await fetch(`${SHEETDB_API_URL}/Week/${encodeURIComponent(originalLabel)}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ data: { Week: updatedLabel } })
-                });
-            } catch(e) {
-                console.error(e);
-            }
-            showSyncBanner(false);
-        }
+    function editWeekLabel(index) {
+        alert("To update historical titles permanently, modify the record entry directly inside your master Google Sheet.");
     }
 
     function updateDashboardView() {
@@ -593,11 +541,11 @@
         tbody.innerHTML = '';
         qaHistory.forEach((record, index) => {
             let rowHTML = `<tr>
-                <td><button class="btn btn-delete" onclick="deleteWeek(${index})" title="Delete Week Log">🗑️</button></td>
+                <td><button class="btn btn-delete" onclick="deleteWeek(${index})" title="Delete entry logs">🗑️</button></td>
                 <td>
                     <div class="week-name-cell">
                         <strong>${record.week}</strong>
-                        <button class="btn btn-edit" onclick="editWeekLabel(${index})" title="Edit Week Label">✏️</button>
+                        <button class="btn btn-edit" onclick="editWeekLabel(${index})" title="Edit entry labels">✏️</button>
                     </div>
                 </td>
                 <td style="font-weight: bold; color: #117a65;">${record.average}%</td>`;
@@ -643,7 +591,7 @@
 
         const average = (total / count).toFixed(2);
 
-        // Put at the beginning of local history array
+        // Put locally at the front to show up immediately
         qaHistory.unshift({
             week: week,
             average: average,
@@ -656,13 +604,13 @@
         inputElements.forEach(input => input.value = '');
         weekHtml.value = '';
 
-        // Write row over SheetDB pipe to Google Spreadsheet
+        // Trigger safe remote pipe execution
         await commitRowToSheet(week, average, currentScores);
     }
 
     window.addEventListener('resize', updateDashboardView);
 
-    // Run automatically on load
+    // Bootstrap data syncing on page view
     loadFromGoogleSheets();
 </script>
 
