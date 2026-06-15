@@ -361,7 +361,8 @@
             });
 
             alert("Scores successfully saved to your Google Sheet vault!");
-            setTimeout(loadFromGoogleSheets, 1500);
+            // Smoothly reload local array data
+            setTimeout(loadFromGoogleSheets, 500);
         } catch (e) {
             alert("Network error processing connection!");
             console.error(e);
@@ -369,18 +370,24 @@
         showSyncBanner(false);
     }
 
-    // NEW REMOTE FUNCTION: Tells Google Script to find and remove a row
-    async function deleteRowFromSheet(weekLabel) {
+    // FIXED: Deletes row instantly from local memory array to stop ghost-refresh cycles
+    async function deleteRowFromSheet(index, weekLabel) {
         showSyncBanner(true);
         try {
+            // 1. Instantly remove row from visual history lists locally
+            qaHistory.splice(index, 1);
+            renderTable();
+            updateDashboardView();
+
+            // 2. Fire and forget deletion payload straight to Google cloud sheet
             await fetch(GOOGLE_SCRIPT_URL, {
                 method: 'POST',
                 mode: 'no-cors',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: "DELETE", week: weekLabel })
             });
+            
             alert(`"${weekLabel}" has been successfully removed from the cloud database!`);
-            setTimeout(loadFromGoogleSheets, 1500);
         } catch (e) {
             console.error("Sync deletion failed:", e);
         }
@@ -447,15 +454,11 @@
         }
     }
 
-    // UNLOCKED: Now allows immediate cloud deletion directly from the table row
     async function deleteWeek(index) {
         const targetedLabel = qaHistory[index].week;
         if (confirm(`Are you sure you want to delete "${targetedLabel}" from the database log for everyone?`)) {
             saveStateForUndo();
-            qaHistory.splice(index, 1);
-            renderTable();
-            updateDashboardView();
-            await deleteRowFromSheet(targetedLabel);
+            await deleteRowFromSheet(index, targetedLabel);
         }
     }
 
