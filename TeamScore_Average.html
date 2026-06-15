@@ -232,9 +232,27 @@
             align-items: center;
             gap: 8px;
         }
+        
+        /* Loading Notification Overlay */
+        .sync-banner {
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 9999;
+            display: none;
+        }
     </style>
 </head>
 <body>
+
+<div id="syncBanner" class="sync-banner">Syncing data with cloud database...</div>
 
 <div class="container">
     <div class="top-bar">
@@ -252,8 +270,7 @@
         <button class="btn btn-add" onclick="promptAddAnalyst()" title="Add New Analyst">+</button>
     </div>
     
-    <div class="analyst-grid" id="analystGrid">
-        </div>
+    <div class="analyst-grid" id="analystGrid"></div>
 
     <button class="btn btn-primary" onclick="calculateAndSave()">Calculate & Save Week</button>
 
@@ -280,10 +297,8 @@
     <h3 style="margin-top: 40px;">Historical Comparison</h3>
     <div class="table-wrapper">
         <table id="historyTable">
-            <thead id="tableHead">
-                </thead>
-            <tbody id="tableBody">
-                </tbody>
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody"></tbody>
         </table>
     </div>
 </div>
@@ -294,9 +309,54 @@
         "Matt C", "Kayla", "Lindsey", "Heather", "Trey", "Tonya"
     ];
 
-    let analysts = JSON.parse(localStorage.getItem('qaAnalysts')) || defaultAnalysts;
-    let qaHistory = JSON.parse(localStorage.getItem('qaHistory')) || [];
+    // Zero-signup cloud locker URLs unique to your repository team setup
+    const ANALYSTS_DB_URL = "https://kvdb.io/MN7qY7vE8A3vREb9zZp5Xb/team_qa_roster";
+    const HISTORY_DB_URL = "https://kvdb.io/MN7qY7vE8A3vREb9zZp5Xb/team_qa_history_v2";
+
+    let analysts = defaultAnalysts;
+    let qaHistory = [];
     let previousState = null;
+
+    // Show visual indicator when contacting database
+    function showSyncBanner(show) {
+        document.getElementById('syncBanner').style.display = show ? 'block' : 'none';
+    }
+
+    // Load data from Cloud on Page Load
+    async function fetchCloudData() {
+        showSyncBanner(true);
+        try {
+            // Fetch roster
+            const rosterRes = await fetch(ANALYSTS_DB_URL);
+            if (rosterRes.ok) {
+                analysts = await rosterRes.json();
+            }
+            // Fetch history
+            const historyRes = await fetch(HISTORY_DB_URL);
+            if (historyRes.ok) {
+                qaHistory = await historyRes.json();
+            }
+        } catch (e) {
+            console.error("Cloud connection failed, fallback to defaults:", e);
+        }
+        showSyncBanner(false);
+        renderAnalysts();
+        renderTable();
+        updateDashboardView();
+    }
+
+    // Save current configuration to the Cloud
+    async function saveCloudData() {
+        showSyncBanner(true);
+        try {
+            await fetch(ANALYSTS_DB_URL, { method: 'POST', body: JSON.stringify(analysts) });
+            await fetch(HISTORY_DB_URL, { method: 'POST', body: JSON.stringify(qaHistory) });
+        } catch (e) {
+            alert("Error syncing to the cloud database! Please check internet connection.");
+            console.error(e);
+        }
+        showSyncBanner(false);
+    }
 
     function saveStateForUndo() {
         previousState = {
@@ -306,13 +366,12 @@
         document.getElementById('undoBtn').disabled = false;
     }
 
-    function triggerUndo() {
+    async function triggerUndo() {
         if (!previousState) return;
         analysts = previousState.analysts;
         qaHistory = previousState.qaHistory;
         
-        localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
-        localStorage.setItem('qaHistory', JSON.stringify(qaHistory));
+        await saveCloudData();
         
         renderAnalysts();
         renderTable();
@@ -338,48 +397,47 @@
         });
     }
 
-    function promptAddAnalyst() {
+    async function promptAddAnalyst() {
         const name = prompt("Enter the new analyst's name:");
         if (name && name.trim() !== "") {
             saveStateForUndo();
             analysts.push(name.trim());
-            localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
             renderAnalysts();
             renderTable();
+            await saveCloudData();
         }
     }
 
-    function deleteAnalyst(index) {
+    async function deleteAnalyst(index) {
         if (confirm(`Are you sure you want to remove ${analysts[index]} from the active roster?`)) {
             saveStateForUndo();
             analysts.splice(index, 1);
-            localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
             renderAnalysts();
             renderTable();
+            await saveCloudData();
         }
     }
 
-    function deleteWeek(index) {
+    async function deleteWeek(index) {
         if (confirm(`Are you sure you want to delete this week's entry?`)) {
             saveStateForUndo();
             qaHistory.splice(index, 1);
-            localStorage.setItem('qaHistory', JSON.stringify(qaHistory));
             renderTable();
             updateDashboardView();
+            await saveCloudData();
         }
     }
 
-    // NEW FUNCTION: Edit historical week label string mappings
-    function editWeekLabel(index) {
+    async function editWeekLabel(index) {
         const currentName = qaHistory[index].week;
         const newName = prompt(`Edit label name for this entry:`, currentName);
         
         if (newName !== null && newName.trim() !== "") {
             saveStateForUndo();
             qaHistory[index].week = newName.trim();
-            localStorage.setItem('qaHistory', JSON.stringify(qaHistory));
             renderTable();
             updateDashboardView();
+            await saveCloudData();
         }
     }
 
@@ -413,7 +471,6 @@
             progEl.innerText = "First Entry";
         }
 
-        // Draw Line Chart Vector Rendering Logic
         const svg = document.getElementById('trendChart');
         svg.innerHTML = ''; 
 
@@ -500,7 +557,7 @@
         });
     }
 
-    function calculateAndSave() {
+    async function calculateAndSave() {
         const weekHtml = document.getElementById('weekLabel');
         const week = weekHtml.value.trim() || "Untitled Week";
         
@@ -537,19 +594,20 @@
             scores: currentScores
         });
 
-        localStorage.setItem('qaHistory', JSON.stringify(qaHistory));
         renderTable();
         updateDashboardView();
 
         inputElements.forEach(input => input.value = '');
         weekHtml.value = '';
+
+        // Commit newly calculated data row directly to the cloud
+        await saveCloudData();
     }
 
     window.addEventListener('resize', updateDashboardView);
 
-    renderAnalysts();
-    renderTable();
-    updateDashboardView();
+    // Initial page load triggers cloud fetch automatically
+    fetchCloudData();
 </script>
 
 </body>
