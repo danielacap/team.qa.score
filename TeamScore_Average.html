@@ -309,7 +309,7 @@
         "Matt C", "Kayla", "Lindsey", "Heather", "Trey", "Tonya"
     ];
 
-    // Your production Web App URL
+    // Paste your Google Web App URL cleanly inside these quotes:
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyIvvOt1Z9NqDpo6kqosPpeE21iySKci9TmJer2L_iAATb0rbU68DKrrb2I3vVWLnxEmw/exec";
 
     let analysts = JSON.parse(localStorage.getItem('qaAnalysts')) || defaultAnalysts;
@@ -320,7 +320,6 @@
         document.getElementById('syncBanner').style.display = show ? 'block' : 'none';
     }
 
-    // Strips strings down to clean text completely free of trailing quotes or slashes
     function cleanString(str) {
         if (!str) return "";
         return str.toString().replace(/^["']|["']$/g, '').trim();
@@ -388,8 +387,17 @@
             updateDashboardView();
 
             const cleanedLabel = cleanString(weekLabel);
-            const deleteUrl = GOOGLE_SCRIPT_URL + "?action=DELETE&week=" + encodeURIComponent(cleanedLabel);
-            await fetch(deleteUrl, { method: 'GET', mode: 'no-cors' });
+            
+            // Re-routed through POST to break completely past Google's write-block rules
+            await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: "DELETE",
+                    week: cleanedLabel
+                })
+            });
             
             if (!quietMode) {
                 alert('"' + cleanedLabel + '" has been successfully removed from the cloud database!');
