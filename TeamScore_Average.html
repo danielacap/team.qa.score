@@ -309,8 +309,8 @@
         "Matt C", "Kayla", "Lindsey", "Heather", "Trey", "Tonya"
     ];
 
-    // Look for line 183 right here and make sure your link is perfectly inside the quotes:
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwIRi1VlM25zBYaswOlEajQY--7bSdyTYoY4OSEviHE9tK9Oimz0Z9H8tl2e2m0fGm8yA/exec";
+    // Your fully authorized Google Script Web App URL
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyIvvOt1Z9NqDpo6kqosPpeE21iySKci9TmJer2L_iAATb0rbU68DKrrb2I3vVWLnxEmw/exec";
 
     let analysts = JSON.parse(localStorage.getItem('qaAnalysts')) || defaultAnalysts;
     let qaHistory = [];
@@ -328,7 +328,7 @@
                 const sheetRows = await response.json();
                 qaHistory = sheetRows.map(function(row) {
                     return {
-                        week: row.Week,
+                        week: row.Week.toString().trim(), // FIXED: Hard trim on load to eliminate stubborn strings
                         average: row.Average,
                         scores: JSON.parse(row.Scores || "{}")
                     };
@@ -343,13 +343,13 @@
         updateDashboardView();
     }
 
-    async function commitRowToSheet(weekLabel, calculatedAvg, packagedScores) {
+    async function commitRowToSheet(weekLabel, calculatedAvg, packagedScores, quietMode) {
         showSyncBanner(true);
         try {
             const rowPayload = {
                 data: [{
                     Timestamp: new Date().toLocaleString(),
-                    Week: weekLabel,
+                    Week: weekLabel.toString().trim(),
                     Average: calculatedAvg,
                     Scores: JSON.stringify(packagedScores)
                 }]
@@ -362,7 +362,9 @@
                 body: JSON.stringify(rowPayload)
             });
 
-            alert("Scores successfully saved to your Google Sheet vault!");
+            if (!quietMode) {
+                alert("Scores successfully saved to your Google Sheet vault!");
+            }
             setTimeout(loadFromGoogleSheets, 500);
         } catch (e) {
             alert("Network error processing connection!");
@@ -371,41 +373,58 @@
         showSyncBanner(false);
     }
 
-    async function deleteRowFromSheet(index, weekLabel) {
+    async function deleteRowFromSheet(index, weekLabel, quietMode) {
         showSyncBanner(true);
         try {
             qaHistory.splice(index, 1);
             renderTable();
             updateDashboardView();
 
-            const deleteUrl = GOOGLE_SCRIPT_URL + "?action=DELETE&week=" + encodeURIComponent(weekLabel);
+            const deleteUrl = GOOGLE_SCRIPT_URL + "?action=DELETE&week=" + encodeURIComponent(weekLabel.toString().trim());
             await fetch(deleteUrl, { method: 'GET', mode: 'no-cors' });
             
-            alert('"' + weekLabel + '" has been successfully removed from the cloud database!');
+            if (!quietMode) {
+                alert('"' + weekLabel + '" has been successfully removed from the cloud database!');
+            }
         } catch (e) {
             console.error("Sync deletion failed:", e);
         }
         showSyncBanner(false);
     }
 
-    function saveStateForUndo() {
+    // TRACKS CONTEXT: Knows exactly what action happened so Undo can patch Google Sheets
+    function saveStateForUndo(actionType, targetData) {
         previousState = {
             analysts: JSON.parse(JSON.stringify(analysts)),
-            qaHistory: JSON.parse(JSON.stringify(qaHistory))
+            qaHistory: JSON.parse(JSON.stringify(qaHistory)),
+            lastAction: actionType, // "SAVE" or "DELETE"
+            contextData: targetData
         };
         document.getElementById('undoBtn').disabled = false;
     }
 
-    function triggerUndo() {
+    async function triggerUndo() {
         if (!previousState) return;
+        
+        const action = previousState.lastAction;
+        const ctx = previousState.contextData;
+
+        // 1. Rollback visual layout fields instantly
         analysts = previousState.analysts;
         qaHistory = previousState.qaHistory;
-        
         localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
-        
         renderAnalysts();
         renderTable();
         updateDashboardView();
+
+        // 2. Rollback the Google Sheet rows depending on what action is being reversed
+        if (action === "SAVE") {
+            // Reversing a save means we need to erase that newly added row from the sheet
+            await deleteRowFromSheet(0, ctx.week, true);
+        } else if (action === "DELETE") {
+            // Reversing a deletion means we need to re-upload the lost row data to the sheet
+            await commitRowToSheet(ctx.week, ctx.average, ctx.scores, true);
+        }
         
         previousState = null;
         document.getElementById('undoBtn').disabled = true;
@@ -428,7 +447,7 @@
     function promptAddAnalyst() {
         const name = prompt("Enter the new analyst's name:");
         if (name && name.trim() !== "") {
-            saveStateForUndo();
+            saveStateForUndo("ROSTER_CHANGE", null);
             analysts.push(name.trim());
             localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
             renderAnalysts();
@@ -438,7 +457,7 @@
 
     function deleteAnalyst(index) {
         if (confirm("Are you sure you want to remove " + analysts[index] + " from the active roster?")) {
-            saveStateForUndo();
+            saveStateForUndo("ROSTER_CHANGE", null);
             analysts.splice(index, 1);
             localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
             renderAnalysts();
@@ -447,10 +466,12 @@
     }
 
     async function deleteWeek(index) {
-        const targetedLabel = qaHistory[index].week;
+        const targetRecord = qaHistory[index];
+        const targetedLabel = targetRecord.week;
         if (confirm('Are you sure you want to delete "' + targetedLabel + '" from the database log for everyone?')) {
-            saveStateForUndo();
-            await deleteRowFromSheet(index, targetedLabel);
+            // Catch complete row payload in case they click Undo later
+            saveStateForUndo("DELETE", targetRecord);
+            await deleteRowFromSheet(index, targetedLabel, false);
         }
     }
 
@@ -535,7 +556,7 @@
 
         points.forEach(function(p) {
             svg.insertAdjacentHTML('beforeend', '<text x="' + p.x + '" y="' + (height - 5) + '" class="chart-text">' + p.label + '</text>');
-            svg.insertAdjacentHTML('beforeend', '<text x="' + p.x + '" y="' + (p.y - 12) + '" class="chart-text" style="fill:#117a65; font-weight:bold;">' + p.value + '%</text>');
+            svg.insertAdjacentHTML('beforeend', '<text x="' + p.x + '" y="' + (p.y - 12) + '" class="chart-text" style="fill:#117a65; font-weight:bold;">----------%' + p.value + '%</text>');
             svg.insertAdjacentHTML('beforeend', '<circle cx="' + p.x + '" cy="' + p.y + '" r="6" class="chart-point" />');
         });
     }
@@ -572,8 +593,6 @@
         const weekHtml = document.getElementById('weekLabel');
         const week = weekHtml.value.trim() || "Untitled Week";
         
-        saveStateForUndo();
-
         const inputElements = document.querySelectorAll('.data-score');
         let total = 0;
         let count = 0;
@@ -599,11 +618,16 @@
 
         const average = (total / count).toFixed(2);
 
-        qaHistory.unshift({
+        const newRecord = {
             week: week,
             average: average,
             scores: currentScores
-        });
+        };
+
+        // Cache save event details in case Undo is clicked
+        saveStateForUndo("SAVE", newRecord);
+
+        qaHistory.unshift(newRecord);
 
         renderTable();
         updateDashboardView();
@@ -611,7 +635,7 @@
         inputElements.forEach(function(input) { input.value = ''; });
         weekHtml.value = '';
 
-        await commitRowToSheet(week, average, currentScores);
+        await commitRowToSheet(week, average, currentScores, false);
     }
 
     window.addEventListener('resize', updateDashboardView);
