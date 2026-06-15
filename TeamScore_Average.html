@@ -309,7 +309,8 @@
         "Matt C", "Kayla", "Lindsey", "Heather", "Trey", "Tonya"
     ];
 
-    const GOOGLE_SCRIPT_URL = https://script.google.com/macros/s/AKfycbwIRi1VlM25zBYaswOlEajQY--7bSdyTYoY4OSEviHE9tK9Oimz0Z9H8tl2e2m0fGm8yA/exec";
+    // Look for line 183 right here and make sure your link is perfectly inside the quotes:
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwIRi1VlM25zBYaswOlEajQY--7bSdyTYoY4OSEviHE9tK9Oimz0Z9H8tl2e2m0fGm8yA/exec";
 
     let analysts = JSON.parse(localStorage.getItem('qaAnalysts')) || defaultAnalysts;
     let qaHistory = [];
@@ -325,11 +326,13 @@
             const response = await fetch(GOOGLE_SCRIPT_URL);
             if (response.ok) {
                 const sheetRows = await response.json();
-                qaHistory = sheetRows.map(row => ({
-                    week: row.Week,
-                    average: row.Average,
-                    scores: JSON.parse(row.Scores || "{}")
-                })).reverse();
+                qaHistory = sheetRows.map(function(row) {
+                    return {
+                        week: row.Week,
+                        average: row.Average,
+                        scores: JSON.parse(row.Scores || "{}")
+                    };
+                }).reverse();
             }
         } catch (e) {
             console.error("Failed fetching data from Google Script:", e);
@@ -368,7 +371,6 @@
         showSyncBanner(false);
     }
 
-    // FIXED: Uses GET link format to break completely through Google CORS security blocks
     async function deleteRowFromSheet(index, weekLabel) {
         showSyncBanner(true);
         try {
@@ -376,11 +378,10 @@
             renderTable();
             updateDashboardView();
 
-            // Sends the delete query parameter in an unblockable GET request link
-            const deleteUrl = `${GOOGLE_SCRIPT_URL}?action=DELETE&week=${encodeURIComponent(weekLabel)}`;
+            const deleteUrl = GOOGLE_SCRIPT_URL + "?action=DELETE&week=" + encodeURIComponent(weekLabel);
             await fetch(deleteUrl, { method: 'GET', mode: 'no-cors' });
             
-            alert(`"${weekLabel}" has been successfully removed from the cloud database!`);
+            alert('"' + weekLabel + '" has been successfully removed from the cloud database!');
         } catch (e) {
             console.error("Sync deletion failed:", e);
         }
@@ -414,14 +415,12 @@
         const grid = document.getElementById('analystGrid');
         grid.innerHTML = '';
         
-        analysts.forEach((name, index) => {
+        analysts.forEach(function(name, index) {
             const row = document.createElement('div');
             row.className = 'analyst-row';
-            row.innerHTML = `
-                <span class="analyst-name">${name}</span>
-                <input type="number" class="score-input data-score" data-name="${name}" min="0" max="100" placeholder="%">
-                <button class="btn btn-delete" onclick="deleteAnalyst(${index})" title="Remove Analyst">🗑️</button>
-            `;
+            row.innerHTML = '<span class="analyst-name">' + name + '</span>' +
+                '<input type="number" class="score-input data-score" data-name="' + name + '" min="0" max="100" placeholder="%">' +
+                '<button class="btn btn-delete" onclick="deleteAnalyst(' + index + ')" title="Remove Analyst">🗑️</button>';
             grid.appendChild(row);
         });
     }
@@ -438,7 +437,7 @@
     }
 
     function deleteAnalyst(index) {
-        if (confirm(`Are you sure you want to remove ${analysts[index]} from the active roster?`)) {
+        if (confirm("Are you sure you want to remove " + analysts[index] + " from the active roster?")) {
             saveStateForUndo();
             analysts.splice(index, 1);
             localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
@@ -449,7 +448,7 @@
 
     async function deleteWeek(index) {
         const targetedLabel = qaHistory[index].week;
-        if (confirm(`Are you sure you want to delete "${targetedLabel}" from the database log for everyone?`)) {
+        if (confirm('Are you sure you want to delete "' + targetedLabel + '" from the database log for everyone?')) {
             saveStateForUndo();
             await deleteRowFromSheet(index, targetedLabel);
         }
@@ -476,13 +475,13 @@
             
             if (diff > 0) {
                 progEl.className = "progress-val prog-up";
-                progEl.innerText = `▲ +${diff}%`;
+                progEl.innerText = "▲ +" + diff + "%";
             } else if (diff < 0) {
                 progEl.className = "progress-val prog-down";
-                progEl.innerText = `▼ ${diff}%`;
+                progEl.innerText = "▼ " + diff + "%";
             } else {
                 progEl.className = "progress-val prog-neutral";
-                progEl.innerText = `● 0.00%`;
+                progEl.innerText = "● 0.00%";
             }
         } else {
             progEl.className = "progress-val prog-neutral";
@@ -492,7 +491,7 @@
         const svg = document.getElementById('trendChart');
         svg.innerHTML = ''; 
 
-        const chronologicalData = [...qaHistory].reverse();
+        const chronologicalData = [].concat(qaHistory).reverse();
         const totalPoints = chronologicalData.length;
 
         if (totalPoints === 0) return;
@@ -504,13 +503,12 @@
         const paddingTop = 30;
         const paddingBottom = 30;
 
-        let averages = chronologicalData.map(d => parseFloat(d.average));
-        let maxAvg = Math.max(...averages, 100);
-        let minAvg = Math.min(...averages, 0);
+        let averages = chronologicalData.map(function(d) { return parseFloat(d.average); });
+        let maxAvg = Math.max.apply(Math, averages.concat([100]));
+        let minAvg = Math.max(0, Math.min.apply(Math, averages) - 5);
         
         maxAvg = Math.min(100, maxAvg + 5);
-        minAvg = Math.max(0, minAvg - 5);
-        const avgRange = maxAvg - minAvg;
+        const avgRange = maxAvg - minAvg || 1;
 
         let points = [];
         for (let i = 0; i < totalPoints; i++) {
@@ -521,24 +519,24 @@
                 x = width / 2;
             }
             let y = paddingTop + ((maxAvg - averages[i]) * (height - paddingTop - paddingBottom) / avgRange);
-            points.push({ x, y, label: chronologicalData[i].week, value: chronologicalData[i].average });
+            points.push({ x: x, y: y, label: chronologicalData[i].week, value: chronologicalData[i].average });
         }
 
         const midY = height / 2;
-        svg.insertAdjacentHTML('beforeend', `<line x1="${paddingLeft}" y1="${midY}" x2="${width - paddingRight}" y2="${midY}" class="chart-grid-line" />`);
+        svg.insertAdjacentHTML('beforeend', '<line x1="' + paddingLeft + '" y1="' + midY + '" x2="' + width + '" y2="' + midY + '" class="chart-grid-line" />');
 
         if (points.length > 1) {
-            let pathD = `M ${points[0].x} ${points[0].y}`;
+            let pathD = "M " + points[0].x + " " + points[0].y;
             for (let i = 1; i < points.length; i++) {
-                pathD += ` L ${points[i].x} ${points[i].y}`;
+                pathD += " L " + points[i].x + " " + points[i].y;
             }
-            svg.insertAdjacentHTML('beforeend', `<path d="${pathD}" class="chart-line" />`);
+            svg.insertAdjacentHTML('beforeend', '<path d="' + pathD + '" class="chart-line" />');
         }
 
-        points.forEach(p => {
-            svg.insertAdjacentHTML('beforeend', `<text x="${p.x}" y="${height - 5}" class="chart-text">${p.label}</text>`);
-            svg.insertAdjacentHTML('beforeend', `<text x="${p.x}" y="${p.y - 12}" class="chart-text" style="fill:#117a65; font-weight:bold;">${p.value}%</text>`);
-            svg.insertAdjacentHTML('beforeend', `<circle cx="${p.x}" cy="${p.y}" r="6" class="chart-point" />`);
+        points.forEach(function(p) {
+            svg.insertAdjacentHTML('beforeend', '<text x="' + p.x + '" y="' + (height - 5) + '" class="chart-text">' + p.label + '</text>');
+            svg.insertAdjacentHTML('beforeend', '<text x="' + p.x + '" y="' + (p.y - 12) + '" class="chart-text" style="fill:#117a65; font-weight:bold;">' + p.value + '%</text>');
+            svg.insertAdjacentHTML('beforeend', '<circle cx="' + p.x + '" cy="' + p.y + '" r="6" class="chart-point" />');
         });
     }
 
@@ -546,31 +544,26 @@
         const thead = document.getElementById('tableHead');
         const tbody = document.getElementById('tableBody');
         
-        let headerHTML = `<tr><th>Action</th><th>Week</th><th>Team Average</th>`;
-        analysts.forEach(name => {
-            headerHTML += `<th>${name}</th>`;
+        let headerHTML = '<tr><th>Action</th><th>Week</th><th>Team Average</th>';
+        analysts.forEach(function(name) {
+            headerHTML += '<th>' + name + '</th>';
         });
-        headerHTML += `</tr>`;
+        headerHTML += '</tr>';
         thead.innerHTML = headerHTML;
 
         tbody.innerHTML = '';
-        qaHistory.forEach((record, index) => {
-            let rowHTML = `<tr>
-                <td><button class="btn btn-delete" onclick="deleteWeek(${index})" title="Delete entry logs">🗑️</button></td>
-                <td>
-                    <div class="week-name-cell">
-                        <strong>${record.week}</strong>
-                        <button class="btn btn-edit" onclick="editWeekLabel(${index})" title="Edit entry labels">✏️</button>
-                    </div>
-                </td>
-                <td style="font-weight: bold; color: #117a65;">${record.average}%</td>`;
+        qaHistory.forEach(function(record, index) {
+            let rowHTML = '<tr>' +
+                '<td><button class="btn btn-delete" onclick="deleteWeek(' + index + ')" title="Delete entry logs">🗑️</button></td>' +
+                '<td><div class="week-name-cell"><strong>' + record.week + '</strong><button class="btn btn-edit" onclick="editWeekLabel(' + index + ')" title="Edit entry labels">✏️</button></div></td>' +
+                '<td style="font-weight: bold; color: #117a65;">' + record.average + '%</td>';
             
-            analysts.forEach(name => {
+            analysts.forEach(function(name) {
                 const score = record.scores[name] !== undefined ? record.scores[name] + '%' : '-';
-                rowHTML += `<td>${score}</td>`;
+                rowHTML += '<td>' + score + '</td>';
             });
             
-            rowHTML += `</tr>`;
+            rowHTML += '</tr>';
             tbody.insertAdjacentHTML('beforeend', rowHTML);
         });
     }
@@ -586,7 +579,7 @@
         let count = 0;
         let currentScores = {};
 
-        inputElements.forEach(input => {
+        inputElements.forEach(function(input) {
             const name = input.getAttribute('data-name');
             const val = parseFloat(input.value);
             
@@ -615,7 +608,7 @@
         renderTable();
         updateDashboardView();
 
-        inputElements.forEach(input => input.value = '');
+        inputElements.forEach(function(input) { input.value = ''; });
         weekHtml.value = '';
 
         await commitRowToSheet(week, average, currentScores);
