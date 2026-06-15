@@ -252,7 +252,7 @@
 </head>
 <body>
 
-<div id="syncBanner" class="sync-banner">Syncing data with cloud database...</div>
+<div id="syncBanner" class="sync-banner">Syncing data with Google Sheets database...</div>
 
 <div class="container">
     <div class="top-bar">
@@ -304,40 +304,40 @@
 </div>
 
 <script>
+    // System configuration and active roster template
     const defaultAnalysts = [
         "Vanessa", "Adelle", "Hunter", "Josh", "Matty", 
         "Matt C", "Kayla", "Lindsey", "Heather", "Trey", "Tonya"
     ];
 
-    // Zero-signup cloud locker URLs unique to your repository team setup
-    const ANALYSTS_DB_URL = "https://kvdb.io/MN7qY7vE8A3vREb9zZp5Xb/team_qa_roster";
-    const HISTORY_DB_URL = "https://kvdb.io/MN7qY7vE8A3vREb9zZp5Xb/team_qa_history_v2";
+    // Locked-in personal SheetDB bridge connection mapping
+    const SHEETDB_API_URL = "https://sheetdb.io/api/v1/qczzu5lfwvr98";
 
-    let analysts = defaultAnalysts;
+    let analysts = JSON.parse(localStorage.getItem('qaAnalysts')) || defaultAnalysts;
     let qaHistory = [];
     let previousState = null;
 
-    // Show visual indicator when contacting database
     function showSyncBanner(show) {
         document.getElementById('syncBanner').style.display = show ? 'block' : 'none';
     }
 
-    // Load data from Cloud on Page Load
-    async function fetchCloudData() {
+    // Grab logs securely via SheetDB engine on initialization
+    async function loadFromGoogleSheets() {
         showSyncBanner(true);
         try {
-            // Fetch roster
-            const rosterRes = await fetch(ANALYSTS_DB_URL);
-            if (rosterRes.ok) {
-                analysts = await rosterRes.json();
-            }
-            // Fetch history
-            const historyRes = await fetch(HISTORY_DB_URL);
-            if (historyRes.ok) {
-                qaHistory = await historyRes.json();
+            const response = await fetch(SHEETDB_API_URL);
+            if (response.ok) {
+                const sheetRows = await response.json();
+                
+                // Reconstruct history tracking structure from columns
+                qaHistory = sheetRows.map(row => ({
+                    week: row.Week,
+                    average: row.Average,
+                    scores: JSON.parse(row.Scores || "{}")
+                })).reverse(); // Keeping newest entries array-first locally
             }
         } catch (e) {
-            console.error("Cloud connection failed, fallback to defaults:", e);
+            console.error("Failed fetching row entries from spreadsheet proxy link:", e);
         }
         showSyncBanner(false);
         renderAnalysts();
@@ -345,15 +345,46 @@
         updateDashboardView();
     }
 
-    // Save current configuration to the Cloud
-    async function saveCloudData() {
+    // Save individual calculated records straight into the sheet
+    async function commitRowToSheet(weekLabel, calculatedAvg, packagedScores) {
         showSyncBanner(true);
         try {
-            await fetch(ANALYSTS_DB_URL, { method: 'POST', body: JSON.stringify(analysts) });
-            await fetch(HISTORY_DB_URL, { method: 'POST', body: JSON.stringify(qaHistory) });
+            const rowPayload = {
+                data: [{
+                    Timestamp: new Date().toLocaleString(),
+                    Week: weekLabel,
+                    Average: calculatedAvg,
+                    Scores: JSON.stringify(packagedScores)
+                }]
+            };
+
+            const response = await fetch(SHEETDB_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(rowPayload)
+            });
+
+            if (response.ok) {
+                alert("Scores securely calculated and saved to Google Sheets vault!");
+            } else {
+                throw new Error("Target row connection write rejection.");
+            }
         } catch (e) {
-            alert("Error syncing to the cloud database! Please check internet connection.");
+            alert("Network error! Unable to process remote writing row lock.");
             console.error(e);
+        }
+        showSyncBanner(false);
+    }
+
+    // Remove tracking row data from remote spreadsheet configuration
+    async function deleteRowFromSheet(weekLabel) {
+        showSyncBanner(true);
+        try {
+            await fetch(`${SHEETDB_API_URL}/Week/${encodeURIComponent(weekLabel)}`, {
+                method: 'DELETE'
+            });
+        } catch (e) {
+            console.error("Sync cleanup row removal failed:", e);
         }
         showSyncBanner(false);
     }
@@ -368,10 +399,18 @@
 
     async function triggerUndo() {
         if (!previousState) return;
+        
+        // If undoing an add action that updated the layout stack
+        const wasAddition = qaHistory.length > previousState.qaHistory.length;
+        if (wasAddition) {
+            const addedLabel = qaHistory[0].week;
+            await deleteRowFromSheet(addedLabel);
+        }
+
         analysts = previousState.analysts;
         qaHistory = previousState.qaHistory;
         
-        await saveCloudData();
+        localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
         
         renderAnalysts();
         renderTable();
@@ -397,34 +436,35 @@
         });
     }
 
-    async function promptAddAnalyst() {
+    function promptAddAnalyst() {
         const name = prompt("Enter the new analyst's name:");
         if (name && name.trim() !== "") {
             saveStateForUndo();
             analysts.push(name.trim());
+            localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
             renderAnalysts();
             renderTable();
-            await saveCloudData();
         }
     }
 
-    async function deleteAnalyst(index) {
+    function deleteAnalyst(index) {
         if (confirm(`Are you sure you want to remove ${analysts[index]} from the active roster?`)) {
             saveStateForUndo();
             analysts.splice(index, 1);
+            localStorage.setItem('qaAnalysts', JSON.stringify(analysts));
             renderAnalysts();
             renderTable();
-            await saveCloudData();
         }
     }
 
     async function deleteWeek(index) {
-        if (confirm(`Are you sure you want to delete this week's entry?`)) {
+        const targetedLabel = qaHistory[index].week;
+        if (confirm(`Are you sure you want to delete "${targetedLabel}" from the database log?`)) {
             saveStateForUndo();
             qaHistory.splice(index, 1);
             renderTable();
             updateDashboardView();
-            await saveCloudData();
+            await deleteRowFromSheet(targetedLabel);
         }
     }
 
@@ -432,12 +472,27 @@
         const currentName = qaHistory[index].week;
         const newName = prompt(`Edit label name for this entry:`, currentName);
         
-        if (newName !== null && newName.trim() !== "") {
+        if (newName !== null && newName.trim() !== "" && newName.trim() !== currentName) {
             saveStateForUndo();
-            qaHistory[index].week = newName.trim();
+            const originalLabel = qaHistory[index].week;
+            const updatedLabel = newName.trim();
+            
+            qaHistory[index].week = updatedLabel;
             renderTable();
             updateDashboardView();
-            await saveCloudData();
+
+            // Patch label directly via structured connection update logic
+            showSyncBanner(true);
+            try {
+                await fetch(`${SHEETDB_API_URL}/Week/${encodeURIComponent(originalLabel)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data: { Week: updatedLabel } })
+                });
+            } catch(e) {
+                console.error(e);
+            }
+            showSyncBanner(false);
         }
     }
 
@@ -588,6 +643,7 @@
 
         const average = (total / count).toFixed(2);
 
+        // Put at the beginning of local history array
         qaHistory.unshift({
             week: week,
             average: average,
@@ -600,14 +656,14 @@
         inputElements.forEach(input => input.value = '');
         weekHtml.value = '';
 
-        // Commit newly calculated data row directly to the cloud
-        await saveCloudData();
+        // Write row over SheetDB pipe to Google Spreadsheet
+        await commitRowToSheet(week, average, currentScores);
     }
 
     window.addEventListener('resize', updateDashboardView);
 
-    // Initial page load triggers cloud fetch automatically
-    fetchCloudData();
+    // Run automatically on load
+    loadFromGoogleSheets();
 </script>
 
 </body>
