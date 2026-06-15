@@ -309,8 +309,8 @@
         "Matt C", "Kayla", "Lindsey", "Heather", "Trey", "Tonya"
     ];
 
-    // Your completely fresh, master deployment link is loaded right here:
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyriIFLAuWnmCI4PZW5Zi-z3aWAJ9zHmoX_dukF0i2qc6YJLfxx5hgrNhAOcEm9_BwGtg/exec";
+    // Your production Web App URL
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxpuCKw6yw9N8Q0VhmXXMJjy2hmnzQ1--JFLJSCkBWMl-Vp-CF3QJAaS3OdC7lL4nbKgQ/exec";
 
     let analysts = JSON.parse(localStorage.getItem('qaAnalysts')) || defaultAnalysts;
     let qaHistory = [];
@@ -379,6 +379,7 @@
         showSyncBanner(false);
     }
 
+    // FIXED: Formats deletion parameter as a plain text parameter to pass Google's JSON parse filter
     async function deleteRowFromSheet(index, weekLabel, quietMode) {
         showSyncBanner(true);
         try {
@@ -388,19 +389,18 @@
 
             const cleanedLabel = cleanString(weekLabel);
             
-            await fetch(GOOGLE_SCRIPT_URL, {
+            // Appends the delete command to the actual URL query string to guarantee Google interprets the action correctly
+            const targetUrl = GOOGLE_SCRIPT_URL + "?action=DELETE&week=" + encodeURIComponent(cleanedLabel);
+
+            await fetch(targetUrl, {
                 method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: "DELETE",
-                    week: cleanedLabel
-                })
+                mode: 'no-cors'
             });
             
             if (!quietMode) {
                 alert('"' + cleanedLabel + '" has been successfully removed from the cloud database!');
             }
+            setTimeout(loadFromGoogleSheets, 500);
         } catch (e) {
             console.error("Sync deletion failed:", e);
         }
